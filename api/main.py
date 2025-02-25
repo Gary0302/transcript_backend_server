@@ -18,7 +18,7 @@ app = FastAPI()
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Add your frontend URL
+    allow_origins=["https://transcription-app-mu.vercel.app"],  # Add your frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,15 +30,22 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 # Constants
 UPLOAD_DIR = "uploads"
 ALLOWED_EXTENSIONS = {".mp3", ".m4a"}
-MAX_FILE_SIZE = 19 * 1024 * 1024  # 20MB
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
 PASSPHRASE = os.getenv("PASSPHRASE")
 
 # Create upload directory if it doesn't exist
+# 原本的 UPLOAD_DIR = "uploads"
+UPLOAD_DIR = "/tmp/uploads"  # 使用 /tmp 目錄確保可寫入
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 
 class TranscriptionRequest(BaseModel):
     filename: str
     include_timestamps: bool
+
+@app.get("/")
+async def index():
+    return {"message": "function ready"}
 
 @app.post("/api/authenticate")
 async def authenticate(passphrase: str = Form(...)):
@@ -114,21 +121,33 @@ async def transcribe_audio(
         
         # Determine MIME type based on file extension
         file_ext = os.path.splitext(request.filename)[1].lower()
-        mime_type = 'audio/mp3' if file_ext == '.mp3' else 'audio/m4a'
         
+        # 使用正確的標準 MIME 類型
+        if file_ext == '.mp3':
+            mime_type = 'audio/mpeg'  # 正確的 MP3 MIME 類型
+        elif file_ext == '.m4a':
+            mime_type = 'audio/x-m4a'  # 適用於 M4A 的 MIME 類型
+        else:
+            # 預設情況
+            mime_type = 'audio/mpeg'
+        
+        print(f"Processing file: {file_path}, Extension: {file_ext}, MIME type: {mime_type}")
         # Create prompts for both languages
         timestamp_format = "[MM:SS]" if request.include_timestamps else ""
-        prompt = f"""Please provide two transcriptions of this audio interview:
-1. Original language transcription {timestamp_format}
-2. English translation {timestamp_format}
+        prompt = f"""Please provide two transcriptions for this audio:
+1. A origin transcript{timestamp_format} 
+2. An English translation {timestamp_format}
 
-Format your response like this:
+Please format your response as follows:
 [ORIGINAL]
 (Original language transcription here)
 
 [ENGLISH]
-(English translation here)"""
-        
+(English translation here)
+
+Note1: Make sure to include line breaks between each section of the transcript, but don't be too trivial
+"""
+
         # Generate content using Gemini
         response = client.models.generate_content(
             model='gemini-2.0-flash',
